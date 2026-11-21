@@ -94,6 +94,7 @@ const (
 	ServiceLMStudio ServiceKey = "lm"
 	ServiceLlamaCPP ServiceKey = "lc"
 	ServiceVLLM     ServiceKey = "vl"
+	ServiceStrata   ServiceKey = "st"
 	ServiceErrors   ServiceKey = "er"
 	ServiceWorkload ServiceKey = "wl"
 	ServiceCluster  ServiceKey = "cl"

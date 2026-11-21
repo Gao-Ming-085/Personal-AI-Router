@@ -135,6 +135,7 @@ const (
 	NameLMStudio = "lmstudio"
 	NameLlamaCPP = "llamacpp"
 	NameVLLM     = "vllm"
+	NameStrata   = "strata"
 )
 
 // all is the ordered engine set. Ollama is first; see the package comment.
@@ -171,6 +172,19 @@ var all = []Engine{
 		FacadePort:       8000,
 		EnginePortBase:   8001,
 		PortFile:         "vllm-proxy-port.json",
+	},
+	// Strata serves one preloaded model per instance and has no request-time
+	// load; the manifest (advertised_models "loaded") drives inventory. Its
+	// stock port 8080 belongs to the engine itself, so PAIR runs the engine on
+	// EnginePortBase and fronts it with a dedicated 18080 facade, avoiding a
+	// collision with llama.cpp's 8080 facade on nodes that run both.
+	{
+		Name:             NameStrata,
+		DisplayName:      "Strata",
+		DiscoveryService: noderec.ServiceStrata,
+		FacadePort:       18080,
+		EnginePortBase:   18081,
+		PortFile:         "strata-proxy-port.json",
 	},
 }
 
