@@ -178,10 +178,12 @@ func buildProfiles() []engineProfile {
 	lmstudio, _ := engines.ByName("lmstudio")
 	llamacpp, _ := engines.ByName("llamacpp")
 	vllm, _ := engines.ByName("vllm")
+	strata, _ := engines.ByName("strata")
 	ollamaRoutes := slices.Concat(ollamaBaseRoutes, openAIInferenceRoutes, anthropicInferenceRoutes)
 	lmStudioRoutes := slices.Concat(lmStudioBaseRoutes, openAIInferenceRoutes, anthropicInferenceRoutes)
 	llamaCPPRoutes := slices.Concat(llamaCPPBaseRoutes, openAIInferenceRoutes)
 	vllmRoutes := slices.Concat(vllmBaseRoutes, openAIInferenceRoutes)
+	strataRoutes := slices.Concat(vllmBaseRoutes, openAIInferenceRoutes)
 
 	return []engineProfile{
 		{
@@ -215,6 +217,13 @@ func buildProfiles() []engineProfile {
 			Routes:                vllmRoutes,
 			ModelNaming:           exactID,
 			ReservedPersistedPort: 8001,
+		},
+		{
+			Engine:                strata,
+			StandalonePort:        8080,
+			Routes:                strataRoutes,
+			ModelNaming:           exactID,
+			ReservedPersistedPort: 18081,
 		},
 	}
 }

@@ -1,0 +1,32 @@
+{
+  "engine": "strata",
+  "display_name": "Strata",
+  "manifest_version": 1,
+  "advertised_models": "loaded",
+  "detect": ["~/.local/bin/strata"],
+  "models_dir": "~/.local/share/strata/Strata-data",
+  "actions": {
+    "list_models": {
+      "http": { "method": "GET", "path": "/v1/models" },
+      "result": { "array": "data", "field": "id" }
+    },
+    "loaded_models": {
+      "http": { "method": "GET", "path": "/v1/models" },
+      "result": { "array": "data", "field": "id" }
+    },
+    "unload_model": { "stop_engine": true }
+  },
+  "platforms": {
+    "linux/amd64": {
+      "runtime": {
+        "mode": "command",
+        "cli": "~/.local/bin/strata",
+        "port": 18081,
+        "start": [["{cli}", "runtime", "start", "--profile", "launch-ud-q5_k_xl-128k", "--wait", "900", "--json"]],
+        "ready": { "http": "http://127.0.0.1:{port}/v1/models", "status": 200, "timeout_s": 20, "interval_s": 10 },
+        "stop": { "cmd": ["{cli}", "runtime", "stop", "--profile", "launch-ud-q5_k_xl-128k", "--json"] },
+        "health": { "http": "http://127.0.0.1:{port}/v1/models", "status": 200, "timeout_s": 10, "interval_s": 20 }
+      }
+    }
+  }
+}

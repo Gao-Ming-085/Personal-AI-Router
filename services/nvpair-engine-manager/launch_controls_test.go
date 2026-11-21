@@ -112,7 +112,7 @@ func TestBundledLlamaCPP_DisablesCORSByDefault(t *testing.T) {
 func TestBundledManifests_DeclareReviewedNetworkingControls(t *testing.T) {
 	reg := loadWithOverrides(t, t.TempDir())
 	// Adding a bundled engine requires an explicit networking review and cases.
-	wantEngines := []string{"llamacpp", "lmstudio", "ollama", "vllm"}
+	wantEngines := []string{"llamacpp", "lmstudio", "ollama", "strata", "vllm"}
 	names := reg.Names()
 	slices.Sort(names)
 	assert.Equal(t, wantEngines, names, "review networking controls for every bundled engine")
@@ -123,7 +123,9 @@ func TestBundledManifests_DeclareReviewedNetworkingControls(t *testing.T) {
 				e := settingsExecutor(t, config.Runtime.modeOrDefault() == "command")
 				graftPlatform(t, e, config)
 				policy := config.Runtime.EditableLaunch
-				require.NotNil(t, policy, "missing reviewed networking controls")
+				if name != "strata" {
+					require.NotNil(t, policy, "missing reviewed networking controls")
+				}
 				var valid, invalid []string
 				switch name {
 				case "lmstudio":
@@ -135,6 +137,13 @@ func TestBundledManifests_DeclareReviewedNetworkingControls(t *testing.T) {
 					require.Equal(t, []LaunchControl{{Value: "{server.host}", Flags: []string{"--host"}}, {Value: "{server.port}", Flags: []string{"--port"}}, {Value: "{cors.origins}", Flags: []string{"--cors-origins"}}}, policy.Controls, "incomplete llama.cpp controls")
 					valid = []string{"--host 127.0.0.1 --port 23456", "--host=127.0.0.1 --port=23456", "--port 23456 --cors-origins https://example.test"}
 					invalid = []string{"--host 0.0.0.0", "--host=::", "--port 0", "--port 65536", "--port", "--cors-origins=*", "--port 23456 --port 23457", "-- --host 0.0.0.0"}
+				case "strata":
+					// Networking review: Strata's listener is configured by its
+					// own launch profile (loopback, port 18081), not by launch
+					// arguments PAIR edits. There are no editable controls; the
+					// manifest binds loopback by omitting runtime.bind.
+					require.Nil(t, policy, "strata must not declare editable launch controls")
+					return
 				case "vllm":
 					require.Equal(t, []string{"serve"}, policy.FixedArgs, "vLLM startup subcommand is not fixed")
 					require.Equal(t, []LaunchControl{{Value: "{server.host}", Flags: []string{"--host"}}, {Value: "{server.port}", Flags: []string{"--port"}}}, policy.Controls, "incomplete vLLM controls")

@@ -152,6 +152,15 @@ var modelWires = map[string]modelWire{
 		"delete": modelOnly("delete_model"),
 		"pull":   modelOnly("pull_model"),
 	},
+	// Strata serves one preloaded model per instance: eject stops the
+	// instance (the manifest's unload_model is stop_engine), and the other
+	// model operations answer from the engine's own inventory.
+	engines.NameStrata: {
+		"load":   modelOnly("load_model"),
+		"unload": modelOnly("unload_model"),
+		"delete": modelOnly("delete_model"),
+		"pull":   modelOnly("pull_model"),
+	},
 }
 
 // pullsWhileStopped are the engines whose download does not go through their
@@ -169,6 +178,7 @@ var downloadExamples = map[string]string{
 	engines.NameLMStudio: "lmstudio-community/Qwen3-8B-GGUF",
 	engines.NameLlamaCPP: "ggml-org/gemma-3-1b-it-GGUF:Q4_K_M",
 	engines.NameVLLM:     "Qwen/Qwen3.5-4B",
+	engines.NameStrata:   "unsloth/Qwen3-Coder-Next-GGUF",
 }
 
 // downloadPrompt is the placeholder for the download-by-name field, with an
