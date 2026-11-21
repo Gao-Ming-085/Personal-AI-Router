@@ -65,7 +65,7 @@ Emitted when a manually added node has been probed and its initial status determ
 }
 ```
 
-Each node is probed for both inference engines: Ollama on its default `:11434` (`GET /` + `/api/tags`) and LM Studio on its default `:1234` (`GET /v1/models`, which doubles as the liveness check and the model list). `lmstudio_up` / `lmstudio_port` / `lmstudio_models` mirror the `ollama_*` fields and let a supervising broker bridge the node into that engine's `nvpair-proxy` instance the same way it bridges Ollama into its own. A node can run either engine, both, or neither.
+Each node is probed for both inference engines: Ollama on its default `:11434` (`GET /` + `/api/tags`) and LM Studio on its default `:1234` (`GET /v1/models`, which doubles as the liveness check and the model list). Either engine's port may be overridden per entry with `ollama_port` / `lmstudio_port`, and a keyed LM Studio engine may carry `lmstudio_api_key`, so an engine served on a non-default port or requiring bearer auth stays visible and routable. `lmstudio_up` / `lmstudio_port` / `lmstudio_models` mirror the `ollama_*` fields and let a supervising broker bridge the node into that engine's `nvpair-proxy` instance the same way it bridges Ollama into its own. A node can run either engine, both, or neither.
 
 ### `node/updated`
 
@@ -124,6 +124,9 @@ is not parsed, because ports are appended to it.
 | `name` | No | Friendly name (used as node ID; defaults to `manual:<address>`) |
 | `tls_port` | No | Override the node-info port (default `14318`). Service hardware always requires pinned mTLS; this hint disables public previews. Echoed back as `tls_enabled` |
 | `mtls` | No | Configuration hint echoed as `mtls_required` when `tls_port` is set. Service hardware uses current cluster pins, and this hint disables public previews |
+| `ollama_port` | No | Override the Ollama engine probe port (default `11434`). For an engine served on a non-default port |
+| `lmstudio_port` | No | Override the LM Studio / OpenAI-compatible engine probe port (default `1234`). For an engine served on a non-default port |
+| `lmstudio_api_key` | No | Bearer token sent on LM Studio probes (`GET /v1/models`) and echoed to the broker so inference forwards to that engine carry the same authorization. For keyed engines |
 
 Response: the initial node status object.
 

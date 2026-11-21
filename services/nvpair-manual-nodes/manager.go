@@ -75,6 +75,27 @@ type ManualEntry struct {
 	Name    string `json:"name"`
 	TLSPort int    `json:"tls_port,omitempty"`
 	MTLS    bool   `json:"mtls,omitempty"`
+	// OllamaPort and LMStudioPort override the compiled-in engine probe ports
+	// (11434 and 1234) so an engine served on a non-default port stays
+	// visible; zero keeps the default. LMStudioAPIKey, when set, is sent as a
+	// bearer token on LM Studio probes and echoed to the broker so inference
+	// forwards to that engine carry the same authorization.
+	OllamaPort     int    `json:"ollama_port,omitempty"`
+	LMStudioPort   int    `json:"lmstudio_port,omitempty"`
+	LMStudioAPIKey string `json:"lmstudio_api_key,omitempty"`
+}
+
+// engineProbePorts resolves the entry's engine probe ports, falling back to
+// the compiled-in defaults when the entry leaves an override at zero.
+func (e ManualEntry) engineProbePorts() (ollamaPort, lmStudioPort int) {
+	ollamaPort, lmStudioPort = defaultOllamaPort, defaultLMStudioPort
+	if e.OllamaPort != 0 {
+		ollamaPort = e.OllamaPort
+	}
+	if e.LMStudioPort != 0 {
+		lmStudioPort = e.LMStudioPort
+	}
+	return ollamaPort, lmStudioPort
 }
 
 // ManualNodeStatus combines a manual entry with its latest probe results.
@@ -93,9 +114,12 @@ type ManualNodeStatus struct {
 	// LM Studio is probed on its default OpenAI-API port the same way Ollama
 	// is on 11434, so a manually-added node running LM Studio can be bridged
 	// into lmstudio-proxy by a supervising broker.
-	LMStudioUp     bool        `json:"lmstudio_up"`
-	LMStudioPort   int         `json:"lmstudio_port"`
-	LMStudioModels []string    `json:"lmstudio_models,omitempty"`
+	LMStudioUp     bool     `json:"lmstudio_up"`
+	LMStudioPort   int      `json:"lmstudio_port"`
+	LMStudioModels []string `json:"lmstudio_models,omitempty"`
+	// LMStudioAPIKey echoes the entry's bearer token so the supervising
+	// broker can stamp it onto proxy routes for this engine.
+	LMStudioAPIKey string      `json:"lmstudio_api_key,omitempty"`
 	NodeInfoUp     bool        `json:"node_info_up"`
 	NodeInfoPort   int         `json:"node_info_port"`
 	TLSEnabled     bool        `json:"tls_enabled,omitempty"`
@@ -131,6 +155,7 @@ func (s ManualNodeStatus) sameAvailability(other ManualNodeStatus) bool {
 		s.LMStudioUp == other.LMStudioUp &&
 		s.LMStudioPort == other.LMStudioPort &&
 		slices.Equal(s.LMStudioModels, other.LMStudioModels) &&
+		s.LMStudioAPIKey == other.LMStudioAPIKey &&
 		s.NodeInfoUp == other.NodeInfoUp &&
 		s.NodeInfoPort == other.NodeInfoPort &&
 		s.TLSEnabled == other.TLSEnabled &&
@@ -438,8 +463,9 @@ func (m *Manager) probeNode(entry ManualEntry) {
 		return
 	}
 
-	ollamaUp, ollamaModels := m.probeOllama(addr, 11434)
-	lmStudioUp, lmStudioModels := m.probeLMStudio(addr, lmStudioPort)
+	ollamaProbe, lmStudioProbe := entry.engineProbePorts()
+	ollamaUp, ollamaModels := m.probeOllama(addr, ollamaProbe)
+	lmStudioUp, lmStudioModels := m.probeLMStudio(addr, lmStudioProbe, entry.LMStudioAPIKey)
 
 	// The entry selects a port, not a protocol: even the default 14318 is
 	// probed with pinned HTTPS, never through the public HTTP hardware path.
@@ -483,11 +509,12 @@ func (m *Manager) probeNode(entry ManualEntry) {
 		Name:                 entry.Name,
 		Address:              addr,
 		OllamaUp:             ollamaUp,
-		OllamaPort:           11434,
+		OllamaPort:           ollamaProbe,
 		OllamaModels:         ollamaModels,
 		LMStudioUp:           lmStudioUp,
-		LMStudioPort:         lmStudioPort,
+		LMStudioPort:         lmStudioProbe,
 		LMStudioModels:       lmStudioModels,
+		LMStudioAPIKey:       entry.LMStudioAPIKey,
 		NodeInfoUp:           nodeInfoUp,
 		NodeInfoPort:         nodeInfoPort,
 		TLSEnabled:           entry.TLSPort > 0,
@@ -596,20 +623,31 @@ func probeFailedID(nodeID string) string {
 	return "manual-nodes:probe-failed:" + nodeID
 }
 
-// lmStudioPort is LM Studio's default OpenAI-API server port, probed the same
-// way Ollama is hardcoded to 11434. A manual node is remote, so (like Ollama)
-// we assume the engine's default port rather than resolving it via the engine
-// manager (which only governs the local engine).
-const lmStudioPort = 1234
+// The default engine probe ports. A manual node is remote, so (for Ollama as
+// for LM Studio) we assume the engine's default port rather than resolving it
+// via the engine manager (which only governs the local engine). An entry may
+// override either port for an engine served on a non-default port.
+const (
+	defaultOllamaPort   = 11434
+	defaultLMStudioPort = 1234
+)
 
 // probeLMStudio checks LM Studio's OpenAI-compatible server on addr:port. A
 // single GET /v1/models doubles as the liveness check and the model list (the
 // response is {"data":[{"id":"..."}],...}). Returns whether it is up and the
-// model ids it serves.
-func (m *Manager) probeLMStudio(addr string, port int) (bool, []string) {
+// model ids it serves. A non-empty apiKey is sent as a bearer token for
+// engines that require one.
+func (m *Manager) probeLMStudio(addr string, port int, apiKey string) (bool, []string) {
 	url := "http://" + net.JoinHostPort(addr, strconv.Itoa(port)) + "/v1/models"
 	start := time.Now()
-	resp, err := m.client.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return false, nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := m.client.Do(req)
 	if err != nil {
 		slog.Debug("manual probe lmstudio failed",
 			"addr", addr, "port", port, "duration_ms", time.Since(start).Milliseconds(), "err", err)
@@ -788,13 +826,15 @@ func (m *Manager) addNode(entry ManualEntry) ManualNodeStatus {
 	if entry.TLSPort > 0 {
 		nodeInfoPort = entry.TLSPort
 	}
+	initialOllamaPort, initialLMStudioPort := entry.engineProbePorts()
 	status := ManualNodeStatus{
 		IdentityVerification: noderec.IdentityUnverified,
 		ID:                   id,
 		Name:                 entry.Name,
 		Address:              entry.Address,
-		OllamaPort:           11434,
-		LMStudioPort:         lmStudioPort,
+		OllamaPort:           initialOllamaPort,
+		LMStudioPort:         initialLMStudioPort,
+		LMStudioAPIKey:       entry.LMStudioAPIKey,
 		NodeInfoPort:         nodeInfoPort,
 		TLSEnabled:           entry.TLSPort > 0,
 		MTLSRequired:         entry.TLSPort > 0 && entry.MTLS,
@@ -905,6 +945,11 @@ func (m *Manager) handleMessage(msg *Message) {
 		}
 		if entry.Address == "" {
 			m.codec.RespondError(msg.ID, -32602, "address is required")
+			return
+		}
+		if entry.OllamaPort < 0 || entry.OllamaPort > 65535 ||
+			entry.LMStudioPort < 0 || entry.LMStudioPort > 65535 {
+			m.codec.RespondError(msg.ID, -32602, "ollama_port and lmstudio_port must be between 1 and 65535 when set")
 			return
 		}
 		status := m.addNode(entry)

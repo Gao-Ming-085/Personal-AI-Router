@@ -59,6 +59,11 @@ type Node struct {
 	// removed. Internal routing metadata, not part of the proxy's outward node
 	// contract.
 	ClusterUUID string `json:"-"`
+	// APIKey authenticates plain-HTTP dials to an explicit manual node whose
+	// engine requires bearer auth. Like ClusterUUID it is internal routing
+	// metadata: the proxy's node/add-manual handler decodes it deliberately
+	// and it is never marshaled into outward node/* notifications.
+	APIKey string `json:"-"`
 }
 
 // withPrimaryIP returns a copy of the node with IP resolved by the shared ranker

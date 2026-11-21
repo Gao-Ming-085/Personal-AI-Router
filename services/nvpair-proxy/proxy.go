@@ -853,6 +853,9 @@ type candidate struct {
 	id       string
 	url      *url.URL
 	peerUUID string
+	// apiKey stamps bearer auth on plain dials to a manual node whose engine
+	// requires one (Node.APIKey; never set for discovered or peer nodes).
+	apiKey string
 }
 
 // candidateTransport returns the reverse-proxy / model-list transport for a
@@ -864,6 +867,35 @@ func (p *Proxy) candidateTransport(c candidate) *http.Transport {
 		return p.plainHTTPTransport()
 	}
 	return p.peerHTTPTransport(c.peerUUID)
+}
+
+// candidateRoundTripper is candidateTransport plus the manual node's API key
+// layer: requests to a manual candidate configured with a key carry it as a
+// bearer token. Callers that dial a candidate (reverse proxy, model-list
+// fan-out, preflight) use this; the pooled Transport identity is preserved
+// for everything that inspects candidateTransport directly.
+func (p *Proxy) candidateRoundTripper(c candidate) http.RoundTripper {
+	t := http.RoundTripper(p.candidateTransport(c))
+	if c.apiKey != "" {
+		t = &bearerAuthTransport{next: t, apiKey: c.apiKey}
+	}
+	return t
+}
+
+// bearerAuthTransport stamps a manual node's configured API key as a bearer
+// token onto outbound engine requests. Only manual nodes carry a key —
+// discovered nodes and cluster peers authenticate by other means — and it
+// replaces any caller-supplied Authorization: the credential belongs to the
+// engine, not to this machine's caller.
+type bearerAuthTransport struct {
+	next   http.RoundTripper
+	apiKey string
+}
+
+func (t *bearerAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	req := r.Clone(r.Context())
+	req.Header.Set("Authorization", "Bearer "+t.apiKey)
+	return t.next.RoundTrip(req)
 }
 
 func newProxyTransport(tlsCfg *tls.Config) *http.Transport {
@@ -1027,13 +1059,15 @@ func (f *facade) serveModelList(w http.ResponseWriter, r *http.Request, matchedR
 			upstream.Header.Set("Accept", "application/json")
 		}
 
-		// A cluster-peer candidate is queried over mTLS to its promoted proxy;
-		// self/manual candidates use the shared plain client.
+		// A cluster-peer candidate is queried over mTLS to its promoted proxy,
+		// and a manual candidate with an API key needs its transport too so the
+		// key reaches the engine; other self/manual candidates share the plain
+		// client.
 		clientCopy := *modelListClient
 		clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		client := &clientCopy
-		if cand.peerUUID != "" {
-			client.Transport = p.candidateTransport(cand)
+		if cand.peerUUID != "" || cand.apiKey != "" {
+			client.Transport = p.candidateRoundTripper(cand)
 		}
 
 		wg.Go(func() {
@@ -1257,7 +1291,7 @@ func (f *facade) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if cors.IsPreflight(r) {
 		targets := make([]cors.Target, 0, len(candidates))
 		for _, cand := range candidates {
-			targets = append(targets, cors.Target{URL: cand.url, Transport: p.candidateTransport(cand)})
+			targets = append(targets, cors.Target{URL: cand.url, Transport: p.candidateRoundTripper(cand)})
 		}
 		sc := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 		cors.ServePreflight(sc, r, targets)
@@ -2172,6 +2206,7 @@ func (f *facade) resolveCandidates(model string) []candidate {
 			id:                  n.ID,
 			url:                 u,
 			peerUUID:            peerUUID,
+			apiKey:              n.APIKey,
 		})
 	}
 
@@ -3024,6 +3059,14 @@ func (p *Proxy) handleMessage(msg *Message) {
 		if err := json.Unmarshal(msg.Params, &node); err != nil {
 			p.codec.RespondError(msg.ID, -32602, "invalid params: expected {\"id\",\"host\",\"port\",\"addresses\"}")
 			return
+		}
+		// Node.APIKey is json:"-": decode the bridge's optional api_key
+		// explicitly so it stays out of outward node/* notifications.
+		var engineAuth struct {
+			APIKey string `json:"api_key,omitempty"`
+		}
+		if json.Unmarshal(msg.Params, &engineAuth) == nil {
+			node.APIKey = engineAuth.APIKey
 		}
 		if node.ID == "" || node.Port == 0 || len(node.Addresses) == 0 {
 			p.codec.RespondError(msg.ID, -32602, "id, port, and at least one address are required")

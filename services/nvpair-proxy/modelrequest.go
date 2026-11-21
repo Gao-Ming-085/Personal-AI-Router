@@ -343,7 +343,7 @@ func (f *facade) requestTransport(next http.RoundTripper, r *http.Request, model
 }
 
 func (f *facade) requestTransportForCandidate(c candidate, r *http.Request, model string) http.RoundTripper {
-	next := http.RoundTripper(f.host.candidateTransport(c))
+	next := f.host.candidateRoundTripper(c)
 	copy := r.Clone(r.Context())
 	copy.URL.Scheme = c.url.Scheme
 	copy.URL.Host = c.url.Host

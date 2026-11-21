@@ -38,6 +38,7 @@ type manualNodeStatus struct {
 	LMStudioUp           bool                         `json:"lmstudio_up"`
 	LMStudioPort         int                          `json:"lmstudio_port"`
 	LMStudioModels       []string                     `json:"lmstudio_models,omitempty"`
+	LMStudioAPIKey       string                       `json:"lmstudio_api_key,omitempty"`
 	NodeInfoPort         int                          `json:"node_info_port"`
 	GPUs                 []GPUInfo                    `json:"gpus"`
 	CPU                  *CPUInfo                     `json:"cpu"`
@@ -77,11 +78,14 @@ type manualNodeRemoveParams struct {
 }
 
 type persistedManualNode struct {
-	ID      string `json:"id,omitempty"`
-	Address string `json:"address"`
-	Name    string `json:"name,omitempty"`
-	TLSPort int    `json:"tls_port,omitempty"`
-	MTLS    bool   `json:"mtls,omitempty"`
+	ID             string `json:"id,omitempty"`
+	Address        string `json:"address"`
+	Name           string `json:"name,omitempty"`
+	TLSPort        int    `json:"tls_port,omitempty"`
+	MTLS           bool   `json:"mtls,omitempty"`
+	OllamaPort     int    `json:"ollama_port,omitempty"`
+	LMStudioPort   int    `json:"lmstudio_port,omitempty"`
+	LMStudioAPIKey string `json:"lmstudio_api_key,omitempty"`
 }
 
 func (e persistedManualNode) key() string {
@@ -343,6 +347,9 @@ type proxyManualNode struct {
 	Addresses []string `json:"addresses"`
 	TXT       []string `json:"txt,omitempty"`
 	Models    []string `json:"models,omitempty"`
+	// APIKey stamps bearer auth onto the proxy's dials to this engine. It
+	// travels only over the broker->proxy stdio pipe, never outward.
+	APIKey string `json:"api_key,omitempty"`
 }
 
 type manualProxyTarget struct {
@@ -377,8 +384,8 @@ type manualProxyBridge struct {
 // daemon to carry — so without this explicit add the proxies can't route
 // inference to them even though both workers are broker-owned.
 func (b *Broker) bridgeManualNode(s manualNodeStatus, key string) {
-	b.bridgeToProxy(ollamaProxyProfile, s, key, s.OllamaUp, s.OllamaPort, s.OllamaModels)
-	b.bridgeToProxy(lmstudioProxyProfile, s, key, s.LMStudioUp, s.LMStudioPort, s.LMStudioModels)
+	b.bridgeToProxy(ollamaProxyProfile, s, key, s.OllamaUp, s.OllamaPort, s.OllamaModels, "")
+	b.bridgeToProxy(lmstudioProxyProfile, s, key, s.LMStudioUp, s.LMStudioPort, s.LMStudioModels, s.LMStudioAPIKey)
 }
 
 // bridgeToProxy requests the node's addition when its engine is reachable, or removal
@@ -387,7 +394,7 @@ func (b *Broker) bridgeManualNode(s manualNodeStatus, key string) {
 // operational identity (its hostUuid once node-info reports it, else the manual
 // id) — the same key the discovery store and scheduler use, so the scheduler's
 // priority list and scheduledOn resolve to this candidate.
-func (b *Broker) bridgeToProxy(profile engineProxyProfile, s manualNodeStatus, key string, up bool, port int, models []string) {
+func (b *Broker) bridgeToProxy(profile engineProxyProfile, s manualNodeStatus, key string, up bool, port int, models []string, apiKey string) {
 	if up && s.Address != "" && port > 0 {
 		node := proxyManualNode{
 			ID:        key,
@@ -395,6 +402,7 @@ func (b *Broker) bridgeToProxy(profile engineProxyProfile, s manualNodeStatus, k
 			Port:      port,
 			Addresses: []string{s.Address},
 			Models:    slices.Clone(models),
+			APIKey:    apiKey,
 		}
 		b.queueManualProxyTarget(profile, key, &node)
 		return

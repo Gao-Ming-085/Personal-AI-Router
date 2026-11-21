@@ -172,11 +172,11 @@ func TestProbeLMStudio_ReportsModels(t *testing.T) {
 	m, _, rt := newTestManager()
 	configureHealthyLMStudio(t, rt, "node.local", []string{"qwen2.5-7b", "llama-3.1-8b"})
 
-	up, models := m.probeLMStudio("node.local", lmStudioPort)
+	up, models := m.probeLMStudio("node.local", defaultLMStudioPort, "")
 	require.True(t, up, "expected lmstudio up")
 	assert.Equal(t, []string{"qwen2.5-7b", "llama-3.1-8b"}, models, "models")
 
-	downUp, downModels := m.probeLMStudio("absent.local", lmStudioPort)
+	downUp, downModels := m.probeLMStudio("absent.local", defaultLMStudioPort, "")
 	require.False(t, downUp, "expected absent lmstudio down, got up (%v, %v)", downUp, downModels)
 	assert.Nil(t, downModels, "expected absent lmstudio down, got up (%v, %v)", downUp, downModels)
 }
@@ -353,6 +353,8 @@ func TestNodeAdd_RejectsInvalidParameters(t *testing.T) {
 	}
 	test("malformed params", requestMessageRaw(t, 1, "node/add", json.RawMessage(`"bad"`)))
 	test("missing address", requestMessage(t, 2, "node/add", ManualEntry{}))
+	test("lmstudio port out of range", requestMessage(t, 3, "node/add", ManualEntry{Address: "192.0.2.9", LMStudioPort: 70000}))
+	test("ollama port out of range", requestMessage(t, 4, "node/add", ManualEntry{Address: "192.0.2.9", OllamaPort: -1}))
 
 	require.Empty(t, m.listNodes(), "validation errors added nodes")
 }
@@ -1415,4 +1417,39 @@ func TestProbeNode_RetainsDisplayPreviewWithoutTreatingItAsReachability(t *testi
 	// failed service probe must still reach the outage-reporting threshold.
 	assert.Equal(t, 3, m.nodes[nodeID(entry)].consecutiveFails)
 	readCaptureUntil(t, frames, methodIs("errors:report"))
+}
+
+// TestProbeLMStudio_KeyedEngineCarriesBearerToken covers a manually added
+// OpenAI-compatible engine that requires bearer auth on a non-default port:
+// the probe answers only when it carries the entry's API key to that port.
+func TestProbeLMStudio_KeyedEngineCarriesBearerToken(t *testing.T) {
+	m, _, rt := newTestManager()
+	const address = "192.0.2.88"
+	rt.set(http.MethodGet, net.JoinHostPort(address, "8008"), "/v1/models",
+		func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("Authorization") != "Bearer sk-test" {
+				return httpJSON(http.StatusUnauthorized, `{"error":"missing api key"}`)
+			}
+			return httpJSON(http.StatusOK, `{"object":"list","data":[{"id":"mlx-model"}]}`)
+		})
+
+	up, models := m.probeLMStudio(address, 8008, "sk-test")
+	require.True(t, up, "expected the keyed engine up on its custom port")
+	assert.Equal(t, []string{"mlx-model"}, models)
+
+	downUp, _ := m.probeLMStudio(address, 8008, "")
+	assert.False(t, downUp, "expected the keyed engine down without its bearer token")
+}
+
+// TestNodeAdd_EchoesEngineOverridesInInitialStatus covers node/add's immediate
+// response: engine port overrides appear where the UI reads them, ports left
+// at zero keep the compiled-in defaults, and the API key rides along for the
+// broker's proxy bridge.
+func TestNodeAdd_EchoesEngineOverridesInInitialStatus(t *testing.T) {
+	m, _, _ := newTestManager()
+	status := m.addNode(ManualEntry{Address: "192.0.2.42", LMStudioPort: 8080, LMStudioAPIKey: "sk-x"})
+
+	assert.Equal(t, 8080, status.LMStudioPort, "custom LM Studio port")
+	assert.Equal(t, defaultOllamaPort, status.OllamaPort, "unset Ollama port kept the default")
+	assert.Equal(t, "sk-x", status.LMStudioAPIKey, "API key echoed for the broker bridge")
 }
