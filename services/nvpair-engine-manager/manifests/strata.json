@@ -22,9 +22,9 @@
         "mode": "command",
         "cli": "~/.local/bin/strata",
         "port": 18081,
-        "start": [["{cli}", "runtime", "start", "--profile", "launch-ud-q5_k_xl-128k", "--wait", "900", "--json"]],
+        "start": [["{cli}", "runtime", "start", "--profile", "ud-q5_k_xl-128k-pair", "--wait", "900", "--json"]],
         "ready": { "http": "http://127.0.0.1:{port}/v1/models", "status": 200, "timeout_s": 20, "interval_s": 10 },
-        "stop": { "cmd": ["{cli}", "runtime", "stop", "--profile", "launch-ud-q5_k_xl-128k", "--json"] },
+        "stop": { "cmd": ["{cli}", "runtime", "stop", "--profile", "ud-q5_k_xl-128k-pair", "--json"] },
         "health": { "http": "http://127.0.0.1:{port}/v1/models", "status": 200, "timeout_s": 10, "interval_s": 20 }
       }
     }
