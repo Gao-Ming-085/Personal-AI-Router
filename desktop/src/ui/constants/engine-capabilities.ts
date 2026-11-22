@@ -87,5 +87,27 @@ export const EngineCapabilities: Record<EngineType, EngineCaps> = {
             label: 'vLLM',
             url: 'https://huggingface.co/models?pipeline_tag=text-generation&library=safetensors&sort=trending'
         }
+    },
+    strata: {
+        hasExpiry: false,
+        // Strata serves one preloaded model per instance; its manifest maps
+        // unload_model to stop_engine, so Eject stops the engine like vLLM's.
+        hasEject: true,
+        // Detect-only manifest: PAIR never installs Strata, so no platform.
+        hasInstall: [],
+        // The engine's listener comes from Strata's own launch profile;
+        // PAIR edits no launch flags.
+        hasEnginePort: false,
+        hasInstallPath: false,
+        hasProxyWebUI: false,
+        hasPreferredNode: false,
+        hasCrashAlert: false,
+        // Inventory is the single loaded model, read from the running /v1/models.
+        hasModelSearchOnlyWhenRunning: true,
+        hasDeleteModel: false,
+        engineHub: {
+            label: 'Strata',
+            url: 'https://github.com/Gao-Ming-085/Personal-AI-Router'
+        }
     }
 }
