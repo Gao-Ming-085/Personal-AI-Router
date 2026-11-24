@@ -1298,6 +1298,18 @@ func (f *facade) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		f.notify("proxy/request", RequestEvent{ID: reqID, Method: r.Method, Path: r.URL.Path, Target: "cluster", Status: sc.status, Duration: time.Since(start).Milliseconds()})
 		return
 	}
+
+	// Profiles that can leak tool-call markup sanitize every reply this
+	// facade serves. The wrapper is installed before the candidate loop so
+	// both the proxy's copied response and its synthesized error bodies
+	// pass through it; everything downstream of here sees the sanitized
+	// writer. finish() runs on return to deliver a buffered JSON body or
+	// release a held SSE tail.
+	if f.profile.SanitizeToolCallLeaks {
+		sw := newLeakSanitizer(w)
+		defer sw.finish()
+		w = sw
+	}
 	// held is this request's claim on a node's capacity while it is in flight.
 	// resMu guards it because failover re-points it from the ReverseProxy's
 	// callbacks while the disconnect watcher may be releasing it.

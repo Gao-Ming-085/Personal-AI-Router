@@ -131,6 +131,15 @@ func (f *facade) handleClusterIngress(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Debug("cluster ingress forwarding to local backend",
 		"peer", peer, "method", r.Method, "path", r.URL.Path, "target", target.Host)
+	// Same leak sanitization as the local plaintext path: a trusted peer
+	// must not receive control markup either. Installed before both
+	// forwarding branches below; finish() releases a buffered JSON body or
+	// a held SSE tail when the handler returns.
+	if f.profile.SanitizeToolCallLeaks {
+		sw := newLeakSanitizer(w)
+		defer sw.finish()
+		w = sw
+	}
 	if f.profile.LoadOnRequest && f.currentLocalBackend().LoadOnRequest && isInferenceRequest(f.profile, r.Method, r.URL.Path) {
 		body, model, err := bufferBodyAndModel(r, false)
 		if err != nil {

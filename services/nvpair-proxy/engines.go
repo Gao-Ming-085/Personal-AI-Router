@@ -124,6 +124,13 @@ type engineProfile struct {
 	// claim one names that variable. Gating on this makes the scoping
 	// enforced rather than left to the broker's restraint in passing the flag.
 	SupportsHostAlias bool
+	// SanitizeToolCallLeaks marks engines whose chat templates can leak
+	// tool-call markup into assistant content (Strata UD templates). Their
+	// replies are sanitized on the way out — the flag field stripped, the
+	// leaked markup removed, an empty result replaced with a notice — so no
+	// consumer of this facade ever parses control tokens as answer text.
+	// See toolcall_sanitize.go.
+	SanitizeToolCallLeaks bool
 }
 
 // ollamaBaseRoutes is the engine-specific surface that Ollama exposes before
@@ -224,6 +231,7 @@ func buildProfiles() []engineProfile {
 			Routes:                strataRoutes,
 			ModelNaming:           exactID,
 			ReservedPersistedPort: 18081,
+			SanitizeToolCallLeaks: true,
 		},
 	}
 }
