@@ -324,4 +324,36 @@ The sanitizer does not retry or re-prompt: it only removes control markup
 from what the engine already produced. Recovery behavior (asking the model
 again with a corrective instruction) belongs to clients, not the proxy.
 
-Translations: [繁體中文](README.zh-TW.md#strata-應答淨化) · [Tiếng Việt](README.vi.md#làm-sạch-phản-hồi-của-strata)
+## Strata engine
+
+Strata is a first-class engine identity (`engines.Strata`). The facade in
+front of it follows the usual one-facade-per-engine rule, but its port plan
+is specific: the Strata facade binds base port **18080** and the
+engine-manager launches `strata serve` under a loopback launch profile at
+**127.0.0.1:18081** — deliberately not llama.cpp's default 8080, so the two
+engines coexist on one machine.
+
+Two Strata-specific contracts:
+
+- **The launch profile carries no key.** The engine-manager's health probe
+  sends no `Authorization` header, so the PAIR-managed Strata profile binds
+  loopback and omits `api_key`. Authentication stays at the boundary:
+  upstream clients and guards hold the key, and the raw engine port is never
+  exposed off-box.
+- **Response sanitization is on by default** — see Strata response
+  sanitization above.
+
+Remote Strata machines (and any OpenAI-compatible engine on a non-default
+port) join through manual nodes with `lmstudio_port` and the optional
+`lmstudio_api_key`; see [nvpair-manual-nodes](../nvpair-manual-nodes/README.md).
+
+## Optional: client-side tool-call guard
+
+The sanitizer above cleans markup the engine already produced. A
+complementary layer sits client-side, ahead of the router: an external guard
+(for example `safeagents`) can reject tool calls to undeclared tools or
+unknown hosts before they enter routing, in log-only or blocking mode. It is
+a separate project, not bundled with this repository. The two layers are
+independent — each is useful alone, and they complement each other.
+
+Translations: [繁體中文](README.zh-TW.md) · [Tiếng Việt](README.vi.md)

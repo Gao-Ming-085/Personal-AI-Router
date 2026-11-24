@@ -30,3 +30,30 @@ Strata 的 UD 對話模板可能針對請求中從未宣告的工具輸出 `<too
 
 淨化器不重試、不重問：它只從引擎已生成的內容中移除控制標記。復原行為
 （以修正指令再次詢問模型）屬於客戶端的職責，而非代理。
+
+## Strata 引擎
+
+Strata 是一等引擎身份（`engines.Strata`）。它前方的 facade 同樣遵循「一引擎
+一 facade」規則，但 port 規劃是特定的：Strata facade 綁定基礎 port
+**18080**，engine-manager 以 loopback 啟動設定檔在 **127.0.0.1:18081**
+啟動 `strata serve`——刻意不使用 llama.cpp 預設的 8080，兩引擎得在同一機器
+共存。
+
+兩項 Strata 專屬契約：
+
+- **啟動設定檔不帶金鑰。** engine-manager 的健康探測不附
+  `Authorization` header，因此由 PAIR 託管的 Strata 設定檔綁定 loopback 並
+  省略 `api_key`；驗證留在邊界（上游客戶端或 guard 持有金鑰），引擎原始
+  port 不外洩到機器之外。
+- **預設開啟應答淨化**——見上文「Strata 應答淨化」。
+
+遠端 Strata 機器（以及任何跑在非預設 port 的 OpenAI 相容引擎）透過手動
+節點加入，使用 `lmstudio_port` 與選填的 `lmstudio_api_key`；見
+[nvpair-manual-nodes](../nvpair-manual-nodes/README.md)。
+
+## 選配：客戶端工具呼叫守衛
+
+上一節的淨化器清除引擎已產生的標記；互補的一層在客戶端、請求進入路由器
+之前：外部守衛（例如 `safeagents`）可在工具呼叫進入路由前，拒絕指向未宣告
+工具或未知主機的呼叫，分為僅記錄與封鎖兩種模式。它是獨立專案、不隨本
+仓库隨附。兩層彼此獨立——單獨运行皆有意義，同時運行則互補。
