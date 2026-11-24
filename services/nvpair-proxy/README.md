@@ -294,3 +294,34 @@ advertised model-owner inventory. A peer's fresher HTTP list cannot expose a
 new model before this facade can route an inference request to it. The model
 appears after discovery convergence; removed models disappear when the peer no
 longer reports them. Other engines retain their existing aggregation behavior.
+
+## Strata response sanitization
+
+Strata's UD chat templates can emit `<tool_call>` markup for tools the
+request never declared. The engine treats that markup as a refused call: it
+strips nothing, flags the reply with `strata_rejected_tool_calls` in the raw
+response, and — when the template had no other answer to give — returns the
+markup as the answer text itself. A client that ignores the flag re-ingests
+its own control tokens as conversation content and teaches the model to leak
+them on purpose.
+
+When the routed engine opts in (`engineProfile.SanitizeToolCallLeaks`, Strata
+only), the facade inspects the reply on its way back — covering local and
+cross-machine requests alike, at both the plaintext local listener and the
+mTLS cluster ingress:
+
+- **Non-streaming**: the flag is removed; leaked blocks are cleaned from
+  every choice's content; when a refusal leaves nothing valid behind, a short
+  note stands in for the markup.
+- **Streaming**: deltas pass through untouched until the flag or a plausible
+  marker opening appears. From there the tail is held (a partial marker
+  prefix is never sent), and at end of stream the held text is flushed either
+  cleaned or replaced by the note. The stream always terminates with `[DONE]`.
+- An **unflagged** reply is never rewritten, and anything that fails to parse
+  passes through byte-for-byte; non-inference routes are untouched.
+
+The sanitizer does not retry or re-prompt: it only removes control markup
+from what the engine already produced. Recovery behavior (asking the model
+again with a corrective instruction) belongs to clients, not the proxy.
+
+Translations: [繁體中文](README.zh-TW.md#strata-應答淨化) · [Tiếng Việt](README.vi.md#làm-sạch-phản-hồi-của-strata)
